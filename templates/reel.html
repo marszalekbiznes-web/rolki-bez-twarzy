@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><title>Test 1: rolka bez twarzy</title>
+<link rel="stylesheet" href="/node_modules/@fontsource-variable/inter-tight/index.css">
+<link rel="stylesheet" href="/node_modules/@fontsource-variable/playfair-display/wght-italic.css">
+<style>html,body{margin:0;background:#000}canvas{display:block;width:1080px;height:1920px}</style>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
+</head><body><canvas id="c" width="1080" height="1920"></canvas>
+<script type="module">
+import { THREE, W, H, EASE, peakOf, channel, drift, clamp01, lerp, prog, rng, createStage, rig, draw2d, tex, glowSprite, dust, Captions, line, start } from '/kit/engine.js';
+import { rgba, lens, clock, hourglass, cardTexture, GLYPHS, loadModel, surfacePoints, dotTexture } from '/kit/objects.js';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+
+// ---------------------------------------------------------------- tokens (presets are only tokens; scenes never hard-code a colour)
+const Q = new URLSearchParams(location.search), TK = await (await fetch('/presets/' + (Q.get('preset') || 'granat') + '.json')).json(), ACC = new THREE.Color(TK.accent);
+const WORDS = (await (await fetch('ready/words.json')).json()).map(w => ({ ...w, w: w.w.replace(/[,.]$/, '') }));
+const TIMING = await (await fetch('ready/timing.json')).json();
+const loadImg = src => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.onerror = () => r(null); i.src = src; });
+
+// ---------------------------------------------------------------- beats (seconds on the trimmed voiceover); retime here only
+const B = { iris: 0.05, open: 1.66, dive: 2.45, ribbon: 3.55, toClock: 6.5, rewind: 9.7, crane: 11.0, place: 11.95, reveal: 14.0, teraz: 16.55, insp: 18.6, orbDive: 19.9, brainLit: 22.2, plan: 23.5, converge: 25.15, ready: 27.1 };
+
+start({ fonts: [['600 100px "Inter Tight Variable"', 'ąęółśżźćń'], ['italic 650 100px "Playfair Display Variable"', 'ąęółśżźćń']], setup: async () => {
+  const stage = createStage({ tokens: TK, bloom: [0.75, 0.6, 0.84], dof: { aperture: 0.0011, maxblur: 0.011 }, env: 0.3 });
+  const { scene, camera, overlay, bokeh } = stage, envTex = scene.environment;
+  scene.fog = new THREE.FogExp2(TK.bg, 0.012);
+  const key = new THREE.DirectionalLight('#FFF6EE', 3.2); key.position.set(-5, 7, 9); scene.add(key);
+  const rimL = new THREE.DirectionalLight(TK.accent, 4.0); rimL.position.set(6, 2, -5); scene.add(rimL);
+  scene.add(new THREE.HemisphereLight('#9fb4ff', '#050608', 0.25));
+  const DOT = dotTexture();
+
+  // ================= 1. lens (origin, faces +z)
+  const L = lens(TK, envTex); scene.add(L.group);
+
+  // ================= 2. ribbon of reel frames behind the lens, a light runs along it into the clock
+  const N = 14, P = i => new THREE.Vector3(1.9 * Math.sin(i * 0.19 - 0.5) + 0.9, 0.45 * Math.sin(i * 0.23 + 0.4) - 0.6, -11 - i * 1.9);
+  const CLK = new THREE.Vector3(1.6, -0.2, -50.5), pts = [], cards = [];
+  for (let i = 0; i < N; i++) {
+    const p = P(i); pts.push(p.x, p.y, p.z);
+    const g = new THREE.Group(); g.position.copy(p); g.userData.i = i; scene.add(g);
+    const dim = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 1.28), new THREE.MeshBasicMaterial({ map: cardTexture(TK, { draw: GLYPHS[i % 6] }), transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+    const lit = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 1.28), new THREE.MeshBasicMaterial({ map: cardTexture(TK, { lit: true, draw: GLYPHS[i % 6] }), transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    lit.position.z = 0.002; lit.userData.noDepth = true; g.add(dim, lit); Object.assign(g.userData, { lit, dim }); cards.push(g);
+  }
+  pts.push(CLK.x, CLK.y, CLK.z + 0.4);
+  const lineGeo = new LineGeometry(); lineGeo.setPositions(pts);
+  const lineMat = new LineMaterial({ color: ACC.clone().multiplyScalar(1.5), linewidth: 2.0, transparent: true, opacity: 0.85, toneMapped: false }); lineMat.resolution.set(W, H);
+  const thread = new Line2(lineGeo, lineMat); thread.userData.noDepth = true; scene.add(thread);
+  const head = glowSprite(rgba(TK.accentHi, 1), 1.8, 1); scene.add(head);
+  const core = new THREE.Mesh(new THREE.SphereGeometry(0.055, 24, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffffff').multiplyScalar(3), toneMapped: false })); core.userData.noDepth = true; scene.add(core);
+  const RUN = [3.0, 7.7], runAt = i => lerp(RUN[0], RUN[1], i / N), PT = k => { const i = Math.floor(k), a = i < N ? P(i) : CLK.clone().setZ(CLK.z + 0.4), b = i + 1 < N ? P(i + 1) : CLK.clone().setZ(CLK.z + 0.4); return a.clone().lerp(b, k - i); };
+
+  // ================= 3. clock at the end of the ribbon
+  const C = clock(TK, envTex); C.group.position.copy(CLK); scene.add(C.group);
+  const clkGlow = glowSprite(rgba(TK.accent, 0.6), 7, 0); clkGlow.position.copy(CLK).add(new THREE.Vector3(0, 0, -0.9)); scene.add(clkGlow);
+
+  // ================= 4. the manual timeline behind the clock, a hand placing clips, an hourglass
+  const TL = { y: -2.7, z: -61.5, x0: -4 }, lanes = [-0.85, 0, 0.85];
+  const bed = new THREE.Mesh(new THREE.PlaneGeometry(140, 4.4), new THREE.ShaderMaterial({ transparent: true, depthWrite: false, uniforms: { uCol: { value: ACC } },
+    vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }',
+    fragmentShader: `uniform vec3 uCol; varying vec3 vW; void main(){ float zl = vW.z + 61.5; vec2 g = vec2(vW.x, zl);
+      float lane = 0.0; for (int i=0;i<4;i++){ float zz = -1.275 + float(i)*0.85; float d = abs(zl - zz)/fwidth(zl); lane = max(lane, 1.0-min(d,1.0)); }
+      float tick = 1.0 - min(abs(fract(vW.x)-0.5)*2.0/ (fwidth(vW.x)*2.0) , 1.0); tick *= step(abs(zl+1.9), 0.25);
+      float edge = smoothstep(2.2, 1.6, abs(zl)); float dist = length(vW - cameraPosition); float fade = exp(-dist*0.035);
+      gl_FragColor = vec4(mix(vec3(0.05,0.06,0.09), uCol, 0.35)*(lane*0.9+tick*0.6) + vec3(0.012,0.014,0.02)*edge, (lane*0.5 + tick*0.35 + edge*0.55)*fade); }` }));
+  bed.rotation.x = -Math.PI / 2; bed.position.set(TL.x0 + 66, TL.y, TL.z); bed.userData.noDepth = true; scene.add(bed);
+  const clipTex = [0, 1, 2].map(k => tex(draw2d(256, 64, g => { const gr = g.createLinearGradient(0, 0, 0, 64); gr.addColorStop(0, rgba(TK.accentHi, 0.95)); gr.addColorStop(1, rgba(TK.accent, 0.85)); g.fillStyle = k === 1 ? 'rgba(150,165,190,0.75)' : gr; g.beginPath(); g.roundRect(1, 1, 254, 62, 6); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(6, 4, 244, 2); if (k === 2) { g.fillStyle = 'rgba(4,6,10,0.55)'; for (let x = 8; x < 248; x += 5) { const a = 6 + 22 * Math.abs(Math.sin(x * 0.21) * Math.cos(x * 0.05)); g.fillRect(x, 32 - a / 2, 2.2, a); } } })));
+  const slabGeo = new THREE.BoxGeometry(1, 0.07, 0.62), slabMat = new THREE.MeshStandardMaterial({ color: '#10131A', metalness: 0.5, roughness: 0.35 });
+  const placed = [], PL = 11, rp = rng(21); let px = 0.6;
+  for (let i = 0; i < PL; i++) { const w = 0.7 + rp() * 0.9, lane = i % 3, g = new THREE.Group(); g.position.set(px + w / 2, TL.y + 0.04, TL.z + lanes[lane]); if (lane === 2) px += w + 0.08;
+    const slab = new THREE.Mesh(slabGeo, slabMat.clone()); slab.material.transparent = true; slab.scale.x = w; g.add(slab);
+    const top = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.04, 0.56), new THREE.MeshBasicMaterial({ map: clipTex[lane], transparent: true, toneMapped: false })); top.rotation.x = -Math.PI / 2; top.position.y = 0.037; g.add(top);
+    g.userData = { at: B.place + i * 0.19, top, w, slab }; scene.add(g); placed.push(g); }
+  const far = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.07, 0.62), new THREE.MeshStandardMaterial({ color: '#10131A', emissive: ACC, emissiveIntensity: 0.22, metalness: 0.5, roughness: 0.4 }), 3 * 160), fo = new THREE.Object3D();
+  { let k = 0; for (const lz of lanes) { let x = px + 0.3 + rp() * 0.5; for (let i = 0; i < 160; i++) { const w = 0.6 + rp() * 1.1; fo.position.set(x + w / 2, TL.y + 0.04, TL.z + lz); fo.scale.set(w, 1, 1); fo.updateMatrix(); far.setMatrixAt(k++, fo.matrix); x += w + 0.08; } } }
+  scene.add(far);
+  const HG = hourglass(TK, envTex); HG.group.position.set(13.6, TL.y + 0.86, TL.z + 0.9); HG.group.scale.setScalar(0.75); scene.add(HG.group);
+  const HAND = await loadModel('assets/models/hand.glb', { size: 2.4, color: '#1A1E27', roughness: 0.42, sheen: TK.accent }); scene.add(HAND.group);
+
+  // ================= 5. dust -> orb above the palm, inspirations orbit it
+  const ORB = new THREE.Vector3(17.0, 0.2, -61.5);
+  const orbGlow = glowSprite(rgba(TK.accent, 0.8), 2.6, 0);
+  const inside = glowSprite(rgba(TK.accent, 0.9), 3.0, 0); scene.add(inside);   // the light you fly through orbGlow.position.copy(ORB); scene.add(orbGlow);
+  const orbCore = new THREE.Mesh(new THREE.SphereGeometry(0.34, 96, 48), new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+    uniforms: { uCore: { value: ACC.clone().multiplyScalar(0.55) }, uRim: { value: new THREE.Color(TK.accentHi).multiplyScalar(1.9) }, opacity: { value: 0 } },
+    vertexShader: 'varying vec3 vN; varying vec3 vV; void main(){ vec4 w = modelMatrix*vec4(position,1.0); vN = normalize(mat3(modelMatrix)*normal); vV = normalize(cameraPosition - w.xyz); gl_Position = projectionMatrix*viewMatrix*w; }',
+    fragmentShader: 'uniform vec3 uCore, uRim; uniform float opacity; varying vec3 vN; varying vec3 vV; void main(){ float f = 1.0 - max(dot(normalize(vN), normalize(vV)), 0.0); vec3 c = mix(uCore, uRim, pow(f, 1.6)) + vec3(0.9,0.95,1.0)*pow(1.0-f, 6.0)*0.35; gl_FragColor = vec4(c*opacity, 1.0); }' })); orbCore.position.copy(ORB); orbCore.userData.noDepth = true; scene.add(orbCore);
+  const insp = (await Promise.all([1, 2, 3, 4, 5, 6, 7, 8].map(i => loadImg(`assets/insp/${i}.png`)))).filter(Boolean);   // optional
+  const inspCards = insp.map((img, i) => { const a = img.width / img.height, h = 0.5, w = h * a, m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: cardTexture(TK, { w: Math.round(220 * a), h: 220, image: img, r: 14 }), transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide })); m.userData.i = i; scene.add(m); return m; });
+
+  // ================= 6. brain of particles behind the orb, plan frames around it
+  const BR = new THREE.Vector3(17.0, 0.35, -74);
+  const BRAIN = await loadModel('assets/models/brain.glb', { size: 1.5, color: '#0E121B', roughness: 0.5, sheen: TK.accent });
+  BRAIN.group.position.copy(BR); BRAIN.group.rotation.y = -0.5; scene.add(BRAIN.group); BRAIN.meshes.forEach(m => { m.material.transparent = true; m.material.opacity = 0; });
+  // one particle system travels the whole second half: clips -> orb -> brain -> final screen
+  const NP = 9000, r9 = rng(77), brainPts = surfacePoints(BRAIN.meshes, NP, 5), pPos = new Float32Array(NP * 3), pCol = new Float32Array(NP * 3);
+  const src = [], orbP = [], brP = [], seed = [];
+  BRAIN.group.updateMatrixWorld(true); const bm = BRAIN.group.matrixWorld, v3 = new THREE.Vector3();
+  for (let i = 0; i < NP; i++) {
+    const c = placed[i % PL]; src.push(new THREE.Vector3(c.position.x + (r9() - 0.5) * c.userData.w, c.position.y + 0.05, c.position.z + (r9() - 0.5) * 0.6));
+    const u = r9() * 2 - 1, th = r9() * Math.PI * 2, rr = 0.36 * Math.cbrt(0.35 + 0.65 * r9()); orbP.push(new THREE.Vector3(ORB.x + rr * Math.sqrt(1 - u * u) * Math.cos(th), ORB.y + rr * u, ORB.z + rr * Math.sqrt(1 - u * u) * Math.sin(th)));
+    v3.set(brainPts[i * 3], brainPts[i * 3 + 1], brainPts[i * 3 + 2]).multiplyScalar(1.01).applyMatrix4(bm); brP.push(v3.clone()); seed.push([r9(), r9(), r9()]);
+  }
+  const pGeo = new THREE.BufferGeometry(); pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+  const pts9 = new THREE.Points(pGeo, new THREE.PointsMaterial({ map: DOT, size: 0.05, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false })); pts9.userData.noDepth = true; pts9.frustumCulled = false; scene.add(pts9);   // positions change every frame: the cached bounding sphere would go stale
+  const brainGlow = glowSprite(rgba(TK.accent, 0.6), 5.5, 0); brainGlow.position.copy(BR).add(new THREE.Vector3(0, 0, -1.5)); scene.add(brainGlow);
+  const SK = [   // plan frames: sketches of this very reel
+    g => { g.beginPath(); g.arc(0, 0, 80, 0, 7); g.stroke(); for (let i = 0; i < 7; i++) { const a = i / 7 * 6.283; g.beginPath(); g.moveTo(Math.cos(a) * 26, Math.sin(a) * 26); g.lineTo(Math.cos(a + 0.9) * 80, Math.sin(a + 0.9) * 80); g.stroke(); } },
+    g => { for (let i = 0; i < 4; i++) { g.strokeRect(-110 + i * 52, -40 - i * 14, 40, 70); } g.beginPath(); g.moveTo(-120, 20); g.lineTo(120, -50); g.stroke(); },
+    g => { g.beginPath(); g.arc(0, 0, 85, 0, 7); g.stroke(); g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -60); g.moveTo(0, 0); g.lineTo(42, 18); g.stroke(); },
+    g => { for (let l = 0; l < 3; l++) for (let i = 0; i < 3; i++) g.strokeRect(-110 + i * 76 + l * 10, -50 + l * 40, 66, 26); },
+    g => { g.beginPath(); g.arc(0, 0, 40, 0, 7); g.fill(); g.beginPath(); g.ellipse(0, 0, 110, 36, -0.25, 0, 7); g.stroke(); },
+    g => { const r = rng(3); for (let i = 0; i < 18; i++) { g.beginPath(); g.arc((r() - 0.5) * 200, (r() - 0.5) * 200, 5, 0, 7); g.fill(); } g.beginPath(); g.arc(0, 0, 95, 0, 7); g.stroke(); },
+  ];
+  const planPos = [[-0.95, 1.0, -1.2], [0.15, 1.25, -1.6], [1.1, 0.95, -1.2], [-1.15, -0.2, -0.9], [1.2, -0.25, -0.9]];
+  const plans = SK.slice(0, 5).map((d, i) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 1.1), new THREE.MeshBasicMaterial({ map: cardTexture(TK, { lit: true, draw: d }), transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide })); m.userData.noDepth = true; m.userData.home = BR.clone().add(new THREE.Vector3(...planPos[i])); scene.add(m); return m; });
+  const links = plans.map((m, i) => { const gg = new LineGeometry(); const a = BR, b = m.userData.home; const ps = []; for (let k = 0; k <= 24; k++) { const u = k / 24, mid = a.clone().lerp(b, u); mid.z += Math.sin(u * Math.PI) * 0.6; ps.push(mid.x, mid.y, mid.z); } gg.setPositions(ps); gg.instanceCount = 0;
+    const lm = new LineMaterial({ color: ACC.clone().multiplyScalar(1.4), linewidth: 1.6, transparent: true, opacity: 0.8, toneMapped: false }); lm.resolution.set(W, H); const l2 = new Line2(gg, lm); l2.userData.noDepth = true; scene.add(l2); return l2; });
+
+  // ================= 7. the final screen: everything pours into one vertical reel
+  const FIN = BR.clone().add(new THREE.Vector3(0, 0.2, -3.2));
+  const screenTex = tex(draw2d(540, 960, g => { g.beginPath(); g.roundRect(3, 3, 534, 954, 46); const bg = g.createLinearGradient(0, 0, 0, 960); bg.addColorStop(0, '#0B1222'); bg.addColorStop(1, '#03050A'); g.fillStyle = bg; g.fill();
+    g.lineWidth = 6; g.strokeStyle = 'rgba(210,220,235,0.55)'; g.stroke(); g.save(); g.translate(270, 430); g.strokeStyle = TK.accentHi; g.lineWidth = 7; g.shadowColor = TK.accent; g.shadowBlur = 40 * 2;
+    g.beginPath(); g.arc(0, 0, 120, 0, 7); g.stroke(); for (let i = 0; i < 7; i++) { const a = i / 7 * 6.283; g.beginPath(); g.moveTo(Math.cos(a) * 42, Math.sin(a) * 42); g.lineTo(Math.cos(a + 0.95) * 120, Math.sin(a + 0.95) * 120); g.stroke(); } g.restore(); }));
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 1.87), new THREE.MeshBasicMaterial({ map: screenTex, transparent: true, opacity: 0, depthWrite: false })); screen.position.copy(FIN); screen.userData.noDepth = true; scene.add(screen);
+  const screenGlow = glowSprite(rgba(TK.accent, 0.8), 6, 0); screenGlow.position.copy(FIN).add(new THREE.Vector3(0, 0, -0.3)); scene.add(screenGlow);
+
+  scene.add(dust(700, [-8, 12, -5, 6, -90, 4], new THREE.Color(TK.accentHi), 0.045, 0.4, 9));
+
+  // ================= captions: small sans line + big italic serif key word, in the band under the centre
+  const cap = new Captions(overlay, TK, { y: 1235 });
+  const ln = (a, b, big) => line(WORDS, a, b, big);
+  cap.add([ln(0, 1, true), ln(2, 3)], 1.62).add([ln(4, 6), ln(7, 7, true)], 3.82).add([ln(8, 9), ln(10, 11, true)], 6.45)
+     .add([ln(12, 16), ln(17, 17, true)], 9.62).add([ln(18, 18), ln(19, 21, true)], 10.92).add([ln(22, 24), ln(25, 25, true)], 12.82)
+     .add([ln(26, 26), ln(27, 27, true)], 13.76).add([ln(28, 31), ln(32, 33, true)], 16.45).add([ln(34, 34, true), ln(35, 38)], 18.58)
+     .add([ln(39, 39), ln(40, 40, true)], 19.80).add([ln(41, 44), ln(45, 45, true)], 23.45).add([ln(46, 46), ln(47, 48, true)], 25.10)
+     .add([ln(49, 53), ln(54, 54, true)], 99);
+
+  // ================= camera: one continuous move, every leg starts fast and settles long
+  const V = v => [v.x, v.y, v.z], WORK = new THREE.Vector3(2.0, TL.y + 0.4, TL.z);
+  const cam = rig({
+    target: channel([0, 0, 0], [{ at: B.dive, dur: 1.8, to: [0, 0, -6] }, { at: B.ribbon, dur: 3.2, to: V(P(7)) }, { at: B.toClock, dur: 2.4, to: V(CLK) },
+      { at: B.crane, dur: 2.0, to: V(WORK) }, { at: 12.6, dur: 2.2, to: [5.0, WORK.y, WORK.z] }, { at: B.reveal, dur: 2.6, to: [14, WORK.y, WORK.z] },
+      { at: B.teraz, dur: 2.2, to: V(ORB) }, { at: B.orbDive, dur: 2.3, to: V(BR) }, { at: B.converge, dur: 2.2, to: V(FIN) }]),
+    dist: channel(14.5, [{ at: 0.0, dur: 1.9, to: 12.6 }, { at: 1.75, dur: 1.3, to: 5.0 }, { at: B.dive, dur: 1.8, to: 2.6 }, { at: B.ribbon, dur: 3.2, to: 10.5 },
+      { at: B.toClock, dur: 2.4, to: 12.5 }, { at: B.crane, dur: 2.0, to: 7.5 }, { at: B.reveal, dur: 2.6, to: 10.0 }, { at: B.teraz, dur: 2.2, to: 6.0 },
+      { at: B.orbDive, dur: 2.3, to: 6.8 }, { at: B.converge, dur: 2.2, to: 6.2 }, { at: 27.3, dur: 3, to: 5.8 }]),
+    az: channel(0.46, [{ at: 0.0, dur: 1.9, to: 0.34 }, { at: 1.75, dur: 1.2, to: 0.0 }, { at: B.ribbon, dur: 3.2, to: 0.32 }, { at: B.toClock, dur: 2.4, to: 0.08 },
+      { at: 8.6, dur: 2.8, to: 0.38 }, { at: B.crane, dur: 2.0, to: 0.18 }, { at: B.reveal, dur: 2.6, to: -0.6 }, { at: B.teraz, dur: 2.2, to: 0.0 },
+      { at: 21.6, dur: 3.2, to: 0.38 }, { at: B.converge, dur: 2.4, to: 0.46 }]),
+    el: channel(0.17, [{ at: 0.0, dur: 1.9, to: 0.12 }, { at: 1.75, dur: 1.2, to: 0.0 }, { at: B.ribbon, dur: 3.2, to: 0.26 }, { at: B.toClock, dur: 2.4, to: 0.06 },
+      { at: B.crane, dur: 2.0, to: 0.62 }, { at: B.reveal, dur: 2.6, to: 0.5 }, { at: B.teraz, dur: 2.2, to: 0.05 }, { at: B.orbDive, dur: 1.2, to: 0.0 },
+      { at: 21.6, dur: 3.2, to: 0.14 }, { at: B.converge, dur: 2.4, to: 0.03 }]),
+    roll: channel(-0.05, [{ at: 0.0, dur: 1.9, to: -0.02 }, { at: 1.75, dur: 1.2, to: 0.0 }, { at: B.ribbon, dur: 3.2, to: -0.06 }, { at: B.toClock, dur: 2.4, to: 0.0 },
+      { at: B.reveal, dur: 2.6, to: 0.05 }, { at: B.teraz, dur: 2.2, to: 0.0 }, { at: 21.6, dur: 3.2, to: -0.04 }, { at: B.converge, dur: 2.2, to: 0.0 }]),
+    frameY: channel(720, [{ at: B.dive, dur: 1.2, to: 960 }, { at: B.ribbon, dur: 3.2, to: 650 }, { at: B.toClock, dur: 2.4, to: 690 }, { at: B.crane, dur: 2.2, to: 720 }, { at: B.teraz, dur: 2.2, to: 690 }, { at: B.orbDive, dur: 1.4, to: 960 }, { at: 21.6, dur: 2, to: 720 }, { at: B.converge, dur: 2.2, to: 660 }]),
+  });
+
+  const handPath = t => {   // the hand: hovers over the timeline, taps each clip down, then turns palm-up under the orb
+    const k = prog(t, B.place - 0.3, B.place + PL * 0.19), x = lerp(0.9, placed[PL - 1].position.x, EASE.sine(k)) + 0.6 * EASE.main(prog(t, B.reveal, B.teraz));
+    const tap = placed.reduce((a, c) => a + Math.exp(-Math.pow((t - c.userData.at) / 0.07, 2)), 0);
+    const enter = EASE.main(prog(t, B.crane + 0.2, B.place)), turn = EASE.main(prog(t, B.teraz, B.teraz + 1.8));
+    const pos = new THREE.Vector3(lerp(-1.5, x, enter), lerp(TL.y + 4.5, TL.y + 1.55 - 0.18 * tap, enter), TL.z + 0.15);
+    pos.lerp(new THREE.Vector3(ORB.x + 0.15, ORB.y - 1.55, ORB.z + 0.25), turn);
+    const rot = new THREE.Euler(lerp(-0.35, -0.05, turn) + drift(t, 0.03, 4.1), lerp(-0.6, -1.2, turn), lerp(0.25, Math.PI + 0.05, turn) + drift(t, 0.02, 5.3));
+    return { pos, rot };
+  };
+
+  const update = t => {
+    cam(t, camera, bokeh);
+    // 1. lens
+    L.group.rotation.set(drift(t, 0.03, 6.1) - 0.05, drift(t, 0.05, 7.7, 0.2) + 0.08 * EASE.main(prog(t, 0, 1.6)) - 0.08 * EASE.main(prog(t, B.open, B.open + 1)), drift(t, 0.02, 9.3) + 0.12 * EASE.main(prog(t, B.open, B.open + 1.2)));
+    L.group.position.y = drift(t, 0.06, 5.3);
+    const irisK = channel(0.62, [{ at: B.iris, dur: 1.25, to: 0 }, { at: B.open, dur: 0.95, to: 1 }])(t), glowK = channel(0.55, [{ at: B.iris, dur: 1.0, to: 0 }, { at: B.open, dur: 0.8, to: 1 }])(t);
+    L.drawIris(irisK, glowK); L.inner.material.opacity = 0.16 * glowK * clamp01((camera.position.z - 1.5) / 3);
+    const near = clamp01((camera.position.z - 0.2) / 2.2); L.glassF.material.opacity = 0.32 * near; L.glassI.material.opacity = 0.18 * near; L.coat.material.opacity = near;
+    L.group.visible = camera.position.z > -12;
+    // 2. ribbon
+    const seen = clamp01((t - 1.75) / 0.7);
+    for (const g of cards) { const i = g.userData.i, ti = runAt(i), hit = EASE.main(prog(t, ti - 0.05, ti + 0.9)), glow = t < ti ? 0 : Math.exp(-(t - ti) * 0.55) * clamp01((t - ti + 0.05) / 0.12);
+      g.lookAt(camera.position); g.rotateY(0.55 * Math.sin(i * 1.7) * (1 - hit)); g.rotateZ(drift(t, 0.05, 6 + i % 3, i * 0.1));
+      g.position.y = P(i).y + drift(t, 0.06, 5.5 + (i % 4), i * 0.37); g.position.z = P(i).z + 0.25 * hit;
+      const nd = g.position.clone().project(camera), low = t > B.toClock ? clamp01((nd.y + 0.62) / 0.3) : 1, cl = clamp01((g.position.distanceTo(camera.position) - 1.8) / 2.5) * low; g.userData.lit.material.opacity = Math.min(1, glow * 1.1 + 0.25 * hit) * seen * cl; g.userData.dim.material.opacity = seen * cl; g.visible = t < B.crane + 1.5 && cl > 0.01; }
+    thread.visible = t > RUN[0] - 0.1 && t < B.crane + 1.5;
+    const drawn = lerp(0, N, EASE.linear(prog(t, RUN[0], RUN[1])));
+    lineGeo.instanceCount = Math.max(1, Math.floor(drawn)); head.position.copy(PT(drawn)); head.lookAt(camera.position); core.position.copy(head.position);
+    head.material.opacity = clamp01((t - RUN[0]) / 0.3) * (1 - clamp01((t - RUN[1]) / 0.4)); core.visible = t > RUN[0] && t < RUN[1] + 0.2;
+    // 3. clock: the light arrives at 7.7 and the clock wakes; on "kilka lat temu" it runs back three hours
+    const wake = EASE.main(prog(t, RUN[1] - 0.2, RUN[1] + 1.2)), back = EASE.main(prog(t, B.rewind, B.rewind + 2.0)), dBack = (EASE.main(prog(t + 0.02, B.rewind, B.rewind + 2.0)) - back) / 0.02;
+    C.set(10.17 - 3 * back, (t * 1.0 + 8) % 60 - 3 * 60 * 6 * back / 6, -dBack * 3 * 2 * Math.PI);
+    C.group.rotation.set(drift(t, 0.03, 6.7) + 0.04, drift(t, 0.06, 8.1, 0.4) - 0.1 * EASE.main(prog(t, B.toClock, B.toClock + 2.5)), drift(t, 0.015, 9.7));
+    C.group.position.y = CLK.y + drift(t, 0.05, 5.9, 0.2); clkGlow.material.opacity = 0.55 * wake * (1 - EASE.main(prog(t, B.crane + 1, B.crane + 2.5)));
+    C.group.visible = t < B.teraz + 1;
+    // 4. timeline, hand, hourglass
+    const tlOn = t > B.crane - 0.5 && t < B.orbDive + 0.5; bed.visible = far.visible = HG.group.visible = tlOn;
+    for (const g of placed) { const a = g.userData.at, k = EASE.land(prog(t, a - 0.04, a + 0.32)), gone = clamp01((t - B.teraz - (g.position.x * 0.03)) / 0.35);
+      g.visible = k > 0.001 && gone < 1 && tlOn; g.position.y = TL.y + 0.04 + (1 - k) * 0.35; g.scale.setScalar(lerp(0.9, 1, k) * (1 - gone * 0.4));
+      g.userData.top.material.color.setScalar(0.9 + 0.3 * Math.exp(-Math.max(0, t - a) * 5) * (t > a ? 1 : 0)); const fo2 = EASE.sine(prog(t, a - 0.04, a + 0.22)); g.userData.top.material.opacity = fo2; g.userData.slab.material.opacity = fo2; }
+    HG.set(1 - EASE.sine(prog(t, B.crane, B.teraz + 1)) * 0.82, t); HG.group.rotation.y = t * 0.12;
+    const hp = handPath(t); HAND.group.position.copy(hp.pos); HAND.group.rotation.copy(hp.rot); HAND.group.visible = t > B.crane && t < B.orbDive + 1.2;
+    // 5. particles: clips -> orb -> brain -> screen
+    const pOn = t > B.teraz - 0.05; pts9.visible = pOn && t < 28.6;
+    if (pOn) { const lit = t > B.brainLit ? 1 : 0, cc = new THREE.Color(TK.accentHi);
+      for (let i = 0; i < NP; i++) { const [a, b, c] = seed[i];
+        const k1 = EASE.main(prog(t, B.teraz + a * 0.45, B.teraz + 1.5 + a * 0.45)), k2 = EASE.main(prog(t, B.orbDive + 0.3 + b * 0.5, B.orbDive + 2.1 + b * 0.5)), k3 = EASE.main(prog(t, B.converge + 0.2 + c * 0.6, B.converge + 1.6 + c * 0.6));
+        let p = src[i].clone().lerp(orbP[i], k1); p.lerp(brP[i], k2);
+        const sw = Math.sin(k1 * Math.PI) * (1 - k2), ang = (a - 0.5) * 2.2 * sw; const dx = p.x - ORB.x, dz = p.z - ORB.z; p.x = ORB.x + dx * Math.cos(ang) - dz * Math.sin(ang); p.z = ORB.z + dx * Math.sin(ang) + dz * Math.cos(ang); p.y += sw * (b - 0.5) * 0.8;
+        if (k1 >= 1 && k2 <= 0) { const o = (t - B.teraz) * (0.6 + a); p.x += Math.sin(o + c * 6) * 0.04; p.y += Math.cos(o * 1.3 + b * 6) * 0.04; }
+        const fp = FIN.clone().add(new THREE.Vector3((a - 0.5) * 1.0, (b - 0.5) * 1.8, 0)); p.lerp(fp, k3);
+        pPos[i * 3] = p.x; pPos[i * 3 + 1] = p.y; pPos[i * 3 + 2] = p.z;
+        let br = 0.5 + 0.2 * k1 - 0.25 * k1 * (1 - k2); if (k2 > 0.9) { const d = brP[i].distanceTo(BR); br = 0.55 + 2.2 * lit * (Math.exp(-Math.pow(d - (t - B.brainLit) * 1.6, 2) / 0.08) + Math.exp(-Math.pow(d - (t - B.brainLit - 0.55) * 1.6, 2) / 0.08) * 0.8) + 0.12 * lit; }
+        br *= (1 - k3 * 0.6) * clamp01((t - B.teraz + 0.05) / 0.3) * clamp01((p.distanceTo(camera.position) - 0.35) / 1.4) * (1 - EASE.main(prog(t, B.converge + 1.4, B.converge + 2.4)));   // poured into the screen, then gone; no giant discs when we fly through
+        pCol[i * 3] = cc.r * br; pCol[i * 3 + 1] = cc.g * br; pCol[i * 3 + 2] = cc.b * br; }
+      pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true; }
+    const orbK = EASE.main(prog(t, B.teraz + 0.6, B.teraz + 2.0)) * (1 - EASE.main(prog(t, B.orbDive + 0.2, B.orbDive + 1.2)));
+    orbGlow.material.opacity = 0.6 * orbK; orbGlow.lookAt(camera.position);
+    { const dO = camera.position.distanceTo(ORB), fw = new THREE.Vector3(); camera.getWorldDirection(fw); inside.position.copy(camera.position).addScaledVector(fw, 0.6); inside.lookAt(camera.position); inside.material.opacity = 0.42 * clamp01(1 - (dO - 0.2) / 2.4) * (t > B.orbDive ? 1 : 0); inside.visible = inside.material.opacity > 0.01; } orbCore.material.uniforms.opacity.value = 0.8 * orbK; orbCore.scale.setScalar(1 + 0.04 * Math.sin(t * 3));
+    for (const m of inspCards) { const i = m.userData.i, ia = B.insp + i * 0.11, k = EASE.main(prog(t, ia, ia + 1.2)), ang = i / 8 * Math.PI * 2 + t * 0.35 + (1 - k) * 1.2, rad = lerp(3.5, 1.3, k);
+      m.position.set(ORB.x + Math.cos(ang) * rad, ORB.y + Math.sin(ang) * rad * 0.28 + 0.1, ORB.z + Math.sin(ang) * rad * 0.9); m.lookAt(camera.position);
+      m.material.opacity = k * (1 - EASE.main(prog(t, B.orbDive + 0.6, B.orbDive + 1.4))); m.material.color.setScalar(0.82); m.visible = m.material.opacity > 0.01; }
+    // 6. brain
+    const bOn = EASE.main(prog(t, B.orbDive + 0.25, B.orbDive + 1.5)) * (1 - EASE.main(prog(t, B.converge + 0.3, B.converge + 1.4)));
+    BRAIN.meshes.forEach(m => { m.material.opacity = bOn * 0.92; }); BRAIN.group.visible = bOn > 0.01;
+    BRAIN.group.rotation.y = -0.5 + t * 0.08; BRAIN.group.position.y = BR.y + drift(t, 0.05, 6.3);
+    brainGlow.material.opacity = 0.18 * bOn + 0.3 * EASE.main(prog(t, B.brainLit, B.brainLit + 0.8)) * bOn; brainGlow.lookAt(camera.position);
+    plans.forEach((m, i) => { const a = B.plan + i * 0.22, k = EASE.main(prog(t, a + 0.15, a + 1.0)), kc = EASE.main(prog(t, B.converge + i * 0.12, B.converge + 1.3 + i * 0.12));
+      m.position.copy(BR.clone().lerp(m.userData.home, k)).lerp(FIN, kc); m.position.y += drift(t, 0.05, 5 + i, i); m.lookAt(camera.position); m.scale.setScalar(lerp(1, 1.05 / 0.62, kc));
+      m.material.opacity = k * (1 - clamp01((kc - 0.85) / 0.15)); m.visible = m.material.opacity > 0.01;
+      const lk = EASE.main(prog(t, a, a + 0.7)) * (1 - kc); links[i].geometry.instanceCount = Math.floor(24 * lk); links[i].visible = lk > 0.02; });
+    // 7. screen
+    const sK = EASE.main(prog(t, B.converge + 0.6, B.converge + 1.8)), sLit = EASE.main(prog(t, B.ready - 0.1, B.ready + 0.6));
+    screen.material.opacity = sK; screen.material.color.setScalar(0.55 + 0.45 * sLit); screen.lookAt(camera.position); screenGlow.material.opacity = 0.55 * sLit; screenGlow.lookAt(camera.position);
+    cap.update(t);
+  };
+  // sound design events, from the same constants as the picture (tools/events.mjs dumps them)
+  const pk = peakOf(), EV = (name, t, kind) => ({ name, t: +t.toFixed(3), kind });
+  const events = [
+    ...[['cam.dive', B.dive, 1.8], ['cam.ribbon', B.ribbon, 3.2], ['cam.clock', B.toClock, 2.4], ['cam.crane', B.crane, 2.0], ['cam.reveal', B.reveal, 2.6], ['cam.teraz', B.teraz, 2.2], ['cam.orb', B.orbDive, 2.3], ['cam.final', B.converge, 2.2]].map(([n, at, d]) => EV(n, at + d * pk, 'move')),
+    EV('iris.close', B.iris + 0.35, 'event'), EV('iris.open', B.open + 0.2, 'event'), ...cards.filter((g, i) => i % 3 === 0).map(g => EV('ribbon.card' + g.userData.i, runAt(g.userData.i), 'event')),
+    EV('clock.wake', RUN[1], 'event'), EV('clock.rewind', B.rewind + 0.2, 'event'), ...placed.map((g, i) => EV('clip' + i, g.userData.at, 'event')),
+    EV('orb.form', B.teraz + 1.5, 'event'), ...inspCards.map((m, i) => EV('insp' + i, B.insp + i * 0.11 + 0.35, 'event')), EV('brain.lit', B.brainLit, 'event'),
+    ...plans.map((m, i) => EV('plan' + i, B.plan + i * 0.22 + 0.35, 'event')), EV('screen.ready', B.ready, 'event'),
+    EV('build.body', B.dive + 0.55, 'build'), EV('build.teraz', B.teraz, 'build'), EV('build.final', B.converge + 1.0, 'build'),
+  ];
+  return { stage, total: TIMING.total, update, events };
+} });
+</script></body></html>

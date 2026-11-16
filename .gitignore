@@ -1,0 +1,8 @@
+node_modules/
+work/
+out/
+*.mp4
+*.wav
+*.glb
+__pycache__/
+.DS_Store

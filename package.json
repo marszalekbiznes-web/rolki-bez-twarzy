@@ -1,0 +1,13 @@
+{
+  "name": "rolki-bez-twarzy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Silnik do rolek bez twarzy: animacja 3D z lektora (three.js), napisy, render MP4.",
+  "dependencies": {
+    "three": "0.170.0",
+    "puppeteer-core": "^23.0.0",
+    "@fontsource-variable/inter-tight": "^5.0.0",
+    "@fontsource-variable/playfair-display": "^5.0.0"
+  }
+}
