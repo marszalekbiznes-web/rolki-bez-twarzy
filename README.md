@@ -4,6 +4,21 @@ Zestaw do skilla Claude **rolki-bez-twarzy**: pionowe rolki (1080×1920, 30 kl/s
 
 Skill sam klonuje to repozytorium i z niego korzysta. Nie musisz niczego uruchamiać ręcznie.
 
+## Jak zacząć (krok po kroku)
+
+### Opcja 1: Claude w przeglądarce lub aplikacji (nic nie instalujesz)
+1. Pobierz plik skilla: [`skill/rolki-bez-twarzy.zip`](https://github.com/marszalekbiznes-web/rolki-bez-twarzy/raw/main/skill/rolki-bez-twarzy.zip).
+2. W Claude otwórz **Customize → Skills**, kliknij **+**, potem **Create skill → Upload a skill** i wybierz pobrany zip.
+3. Otwórz nową rozmowę, załącz nagranie lektora (mp3/wav) i napisz np. „Zrób z tego rolkę bez twarzy”.
+4. Przy pierwszym użyciu skill zapyta o inspiracje, modele 3D i ikony, kolory, fonty i bibliotekę dźwięków. Potem prowadzi przez storyboard, prototyp i render.
+
+Wymaga włączonego tworzenia plików i uruchamiania kodu (domyślnie włączone na planach Free, Pro, Max). Render w chmurze trwa ok. 35–40 min na 30 s rolki.
+
+### Opcja 2: Claude Code na własnym komputerze (dużo szybszy render)
+1. Zainstaluj Node 18+, Python 3, ffmpeg i Google Chrome.
+2. Wgraj skill jak w opcji 1 albo skopiuj folder `skill/rolki-bez-twarzy` do `~/.claude/skills/`.
+3. Pracuj tak samo, a renderuj z flagą `--gpu` (karta graficzna).
+
 ## Wymagania
 Node 18+, Python 3, ffmpeg, Google Chrome lub Chromium. Instalacja: `bash setup.sh`.
 
@@ -20,6 +35,8 @@ Node 18+, Python 3, ffmpeg, Google Chrome lub Chromium. Instalacja: `bash setup.
 | `tools/events.mjs` | zdarzenia sceny (ruch, zdarzenie, narastanie) do sound designu |
 | `tools/sfx_mix.py` | miks efektów z twojej biblioteki pod głos, normalizacja do −14 LUFS |
 | `templates/reel.html` | pełna rolka testowa jako wzór |
+| `skill/` | sam skill (`SKILL.md`) i gotowy zip do wgrania w Claude |
+| `tools/get_whisper_model.sh` | model do transkrypcji, gdy HuggingFace jest niedostępny |
 | `presets/*.json` | kolory i fonty (zestawy tokenów) |
 
 ## Szybki start

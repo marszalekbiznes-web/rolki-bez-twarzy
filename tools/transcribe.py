@@ -14,7 +14,10 @@ ap.add_argument('audio'); ap.add_argument('out')
 ap.add_argument('--model', default='small'); ap.add_argument('--lang', default='pl')
 a = ap.parse_args()
 
-model = WhisperModel(a.model, device='cpu', compute_type='int8')
+try:
+    model = WhisperModel(a.model, device='cpu', compute_type='int8')
+except Exception as e:
+    sys.exit(f'Nie udało się wczytać modelu Whisper ({e}).\nGdy HuggingFace jest zablokowany: bash tools/get_whisper_model.sh, potem --model models/whisper-small')
 # decode with ffmpeg to 16 kHz mono float32 (PyAV inside faster-whisper is version-sensitive)
 pcm = subprocess.run(['ffmpeg', '-v', 'error', '-i', a.audio, '-ac', '1', '-ar', '16000', '-f', 'f32le', '-'], capture_output=True, check=True).stdout
 audio = np.frombuffer(pcm, np.float32)
